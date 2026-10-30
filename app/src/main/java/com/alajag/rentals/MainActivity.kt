@@ -220,7 +220,7 @@ class MainActivity:Activity(){
      out.append("  "+e.created+" | "+label+" | "+e.amount+" ريال\\n")
      when(e.kind){"RENT"->rent+=e.amount;"PAYMENT"->paid+=e.amount;"CHARGE"->charge+=e.amount;else->credit+=e.amount}
     }
-    out.append("  الرصيد الحالي: "+db.balance(t.id)+" ريال\\n")
+    out.append("  الرصيد حتى تاريخ التقرير: "+(if(to.isBlank())db.balance(t.id) else db.balanceAt(t.id,to))+" ريال\\n")
    }
   }
   out.append("\\nالإجماليات للفترة\\nالإيجارات: "+rent+" ريال\\nالتحصيلات: "+paid+" ريال\\nالمبالغ الإضافية: "+charge+" ريال\\nالأرصدة الدائنة المسجلة: "+credit+" ريال")
