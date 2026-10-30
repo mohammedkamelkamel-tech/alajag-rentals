@@ -110,7 +110,7 @@ class MainActivity : Activity() {
     private lateinit var list:LinearLayout
     private lateinit var summary:TextView
     override fun onCreate(savedInstanceState:Bundle?) {
-        super.onCreate(savedInstanceState); db=Db(this)
+        super.onCreate(savedInstanceState); db=Db(this); Schedule.install(this)
         // يعالج كل الأشهر التي انتهى موعدها منذ نوفمبر 2026، دون تكرار.
         db.generateDuePeriods()
         render()
