@@ -51,8 +51,10 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,4){
   require(name.isNotBlank()){"اسم المستأجر مطلوب"};require(rent>0){"الإيجار يجب أن يكون أكبر من صفر"}
   val d=writableDatabase;d.beginTransaction()
   try{val created=stamp();val id=d.insertOrThrow("tenants",null,values{put("name",name.trim());put("phone",phone.trim());put("rent",rent);put("notes",notes.trim());put("active",1);put("created_at",created)})
-   val effective=SimpleDateFormat("yyyy-MM",Locale.US).format(Date())
-   d.insertOrThrow("rent_rates",null,values{put("tenant_id",id);put("amount",rent);put("effective_from",if(effective<"2026-11")"2026-11" else effective);put("created_at",created)})
+   val currentPeriod=SimpleDateFormat("yyyy-MM",Locale.US).format(Date())
+   val firstPeriod=BillingPeriods.firstPeriodForNewTenant(currentPeriod)
+   saveSetting("billing_start_"+id,firstPeriod)
+   d.insertOrThrow("rent_rates",null,values{put("tenant_id",id);put("amount",rent);put("effective_from",firstPeriod);put("created_at",created)})
    d.setTransactionSuccessful()
   }finally{d.endTransaction()}
  }
@@ -62,8 +64,8 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,4){
   try{
    d.update("tenants",values{put("name",name.trim());put("phone",phone.trim());put("rent",rent);put("notes",notes.trim());put("active",if(active)1 else 0)},"id=?",arrayOf(t.id.toString()))
    if(!t.active && active){
-    val next=Calendar.getInstance().apply{add(Calendar.MONTH,1)}
-    saveSetting("billing_start_"+t.id,String.format(Locale.US,"%04d-%02d",next.get(Calendar.YEAR),next.get(Calendar.MONTH)+1))
+    val currentPeriod=SimpleDateFormat("yyyy-MM",Locale.US).format(Date())
+    saveSetting("billing_start_"+t.id,BillingPeriods.nextPeriod(currentPeriod))
    }
    val next=Calendar.getInstance().apply{add(Calendar.MONTH,1)}
    val effective=String.format(Locale.US,"%04d-%02d",next.get(Calendar.YEAR),next.get(Calendar.MONTH)+1)
