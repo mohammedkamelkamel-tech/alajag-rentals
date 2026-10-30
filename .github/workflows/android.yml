@@ -24,8 +24,18 @@ jobs:
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
       - name: Build APK
         run: gradle --no-daemon assembleDebug
+      - name: Package APK and editable project
+        run: |
+          mkdir -p release
+          cp app/build/outputs/apk/debug/*.apk release/
+          zip -r release/alajag-rentals-project.zip . -x ".git/*" "*/build/*" ".gradle/*" "release/*"
+          cat > release/README.txt <<'EOF'
+          العجاج - الإيجارات
+          يحتوي هذا الملف على APK الناتج من البناء الناجح، وملف المشروع الكامل القابل للفتح والتعديل في Android Studio.
+          الحد الأدنى: Android 9 (API 28).
+          EOF
       - uses: actions/upload-artifact@v4
         with:
-          name: alajag-rentals-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: alajag-rentals-15.10-apk-and-project
+          path: release/*
           if-no-files-found: error
