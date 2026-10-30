@@ -251,7 +251,32 @@ class MainActivity:Activity(){
  private fun backup(){val i=Intent(Intent.ACTION_CREATE_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="application/json";putExtra(Intent.EXTRA_TITLE,"alajag-backup-"+stamp().replace(':','-')+".json")};startActivityForResult(i,81)}
  private fun restore(){AlertDialog.Builder(this).setTitle("استعادة نسخة").setMessage("سيتم استبدال البيانات الحالية. احفظ نسخة احتياطية منها أولاً.").setNegativeButton("إلغاء",null).setNeutralButton("آخر نسخة تلقائية"){_,_->restoreLatestAutomatic()}.setPositiveButton("اختيار ملف"){_,_->val i=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="application/json"};startActivityForResult(i,82)}.show()}
  private fun restoreLatestAutomatic(){try{val folder=java.io.File(filesDir,"backups");val latest=folder.listFiles()?.filter{it.name.startsWith("alajag-backup-")}?.maxByOrNull{it.name}?:throw IllegalStateException("لا توجد نسخة تلقائية محفوظة");AlertDialog.Builder(this).setTitle("استعادة النسخة التلقائية").setMessage("سيتم استعادة النسخة: "+latest.name+" واستبدال البيانات الحالية.").setNegativeButton("إلغاء",null).setPositiveButton("استعادة"){_,_->try{db.restore(latest.readText(Charsets.UTF_8));db.generateDuePeriods();refresh();toast("تمت استعادة النسخة التلقائية")}catch(e:Exception){toast("تعذرت الاستعادة: "+e.message)}}.show()}catch(e:Exception){toast(e.message?:"لا توجد نسخة تلقائية")}}
- override fun onActivityResult(req:Int,res:Int,data:Intent?){super.onActivityResult(req,res,data);if(res!=RESULT_OK||data?.data==null){pdf?.close();pdf=null;return};try{when(req){81->contentResolver.openOutputStream(data.data!!)?.use{it.write(db.backup().toByteArray(Charsets.UTF_8))}.also{toast("تم حفظ النسخة الكاملة")};82->{val raw=contentResolver.openInputStream(data.data!!)!!.bufferedReader().use{it.readText()};db.restore(raw);db.generateDuePeriods();refresh();toast("تمت استعادة النسخة")};83->{pdf?.let{p->contentResolver.openOutputStream(data.data!!)?.use{p.writeTo(it)};p.close();pdf=null;toast("تم حفظ PDF")}}}}catch(e:Exception){toast("تعذرت العملية: "+e.message)}}
+ override fun onActivityResult(req:Int,res:Int,data:Intent?){
+  super.onActivityResult(req,res,data)
+  if(res!=RESULT_OK||data?.data==null){pdf?.close();pdf=null;return}
+  try{
+   when(req){
+    81->{
+     val output=contentResolver.openOutputStream(data.data!!)?:throw IllegalStateException("تعذر فتح ملف النسخة للكتابة")
+     output.use{it.write(db.backup().toByteArray(Charsets.UTF_8));it.flush()}
+     toast("تم حفظ النسخة الكاملة")
+    }
+    82->{
+     val input=contentResolver.openInputStream(data.data!!)?:throw IllegalStateException("تعذر فتح ملف النسخة")
+     val raw=input.bufferedReader(Charsets.UTF_8).use{it.readText()}
+     db.restore(raw);db.generateDuePeriods();refresh();toast("تمت استعادة النسخة")
+    }
+    83->{
+     val document=pdf?:throw IllegalStateException("ملف PDF غير متاح")
+     try{
+      val output=contentResolver.openOutputStream(data.data!!)?:throw IllegalStateException("تعذر فتح ملف PDF للكتابة")
+      output.use{document.writeTo(it);it.flush()}
+      toast("تم حفظ PDF")
+     }finally{document.close();pdf=null}
+    }
+   }
+  }catch(e:Exception){pdf?.close();pdf=null;toast("تعذرت العملية: "+(e.message?:"خطأ غير معروف"))}
+ }
  private fun validateDateRange(from:String,to:String)=DateRangeRules.validate(from,to)
  private fun share(subject:String,body:String){startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_SUBJECT,subject);putExtra(Intent.EXTRA_TEXT,body)},"مشاركة"))}
  private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
