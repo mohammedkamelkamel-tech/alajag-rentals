@@ -67,10 +67,12 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,4){
     val currentPeriod=SimpleDateFormat("yyyy-MM",Locale.US).format(Date())
     saveSetting("billing_start_"+t.id,BillingPeriods.nextPeriod(currentPeriod))
    }
-   val next=Calendar.getInstance().apply{add(Calendar.MONTH,1)}
-   val effective=String.format(Locale.US,"%04d-%02d",next.get(Calendar.YEAR),next.get(Calendar.MONTH)+1)
-   d.delete("rent_rates","tenant_id=? AND effective_from=?",arrayOf(t.id.toString(),effective))
-   d.insertOrThrow("rent_rates",null,values{put("tenant_id",t.id);put("amount",rent);put("effective_from",effective);put("created_at",stamp())})
+   if(rent!=t.rent){
+    val currentPeriod=SimpleDateFormat("yyyy-MM",Locale.US).format(Date())
+    val effective=BillingPeriods.nextPeriod(currentPeriod)
+    d.delete("rent_rates","tenant_id=? AND effective_from=?",arrayOf(t.id.toString(),effective))
+    d.insertOrThrow("rent_rates",null,values{put("tenant_id",t.id);put("amount",rent);put("effective_from",effective);put("created_at",stamp())})
+   }
    d.setTransactionSuccessful()
   }finally{d.endTransaction()}
  }
