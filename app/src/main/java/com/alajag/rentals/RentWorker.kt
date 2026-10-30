@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.AtomicFile
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.work.Worker
@@ -26,12 +27,16 @@ class RentWorker(context: Context, params: WorkerParameters) : Worker(context, p
         if (!folder.exists()) folder.mkdirs()
         val day = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         val backup = File(folder, "alajag-backup-" + day + ".json")
-        val temporary = File(folder, backup.name + ".tmp")
-        temporary.writeText(db.backup(), Charsets.UTF_8)
-        if (backup.exists() && !backup.delete()) throw IllegalStateException("Cannot replace previous backup")
-        if (!temporary.renameTo(backup)) {
-            temporary.copyTo(backup, overwrite = true)
-            temporary.delete()
+        val atomicBackup = AtomicFile(backup)
+        var output: java.io.FileOutputStream? = null
+        try {
+            output = atomicBackup.startWrite()
+            output.write(db.backup().toByteArray(Charsets.UTF_8))
+            atomicBackup.finishWrite(output)
+            output = null
+        } catch (error: Exception) {
+            if (output != null) atomicBackup.failWrite(output)
+            throw error
         }
         folder.listFiles()?.filter { it.name.startsWith("alajag-backup-") && it.name.endsWith(".json") }
             ?.sortedByDescending { it.name }?.drop(30)?.forEach { it.delete() }
