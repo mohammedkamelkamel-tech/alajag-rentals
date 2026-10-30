@@ -150,7 +150,7 @@ private fun rentForPeriod(tenantId:Long,period:String):Long{
    d.delete("ledger",null,null);d.delete("rent_rates",null,null);d.delete("tenants",null,null);d.delete("counters",null,null);d.delete("app_settings",null,null)
    for(i in 0 until ta.length()){val o=ta.getJSONObject(i);require(o.getLong("rent")>0&&o.getString("name").isNotBlank());d.insertOrThrow("tenants",null,values{put("id",o.getLong("id"));put("name",o.getString("name"));put("phone",o.optString("phone"));put("rent",o.getLong("rent"));put("notes",o.optString("notes"));put("active",o.optInt("active",1));put("created_at",o.optString("created_at",stamp()))})}
    val tenantIds=(0 until ta.length()).map{ta.getJSONObject(it).getLong("id")}.toHashSet()
-   for(i in 0 until la.length()){val o=la.getJSONObject(i);val kind=o.getString("kind");require(tenantIds.contains(o.getLong("tenant_id"))){"قيد مرتبط بمستأجر غير موجود"};require(kind in listOf("RENT","PAYMENT","CHARGE","CREDIT")&&o.getLong("amount")>0);d.insertOrThrow("ledger",null,values{put("id",o.getLong("id"));put("tenant_id",o.getLong("tenant_id"));put("kind",kind);if(!o.isNull("period"))put("period",o.getString("period"));put("amount",o.getLong("amount"));if(!o.isNull("receipt_no"))put("receipt_no",o.getLong("receipt_no"));if(!o.isNull("receiver"))put("receiver",o.getString("receiver"));if(!o.isNull("note"))put("note",o.getString("note"));put("created_at",o.getString("created_at"))})}
+   for(i in 0 until la.length()){val o=la.getJSONObject(i);val kind=o.getString("kind");require(tenantIds.contains(o.getLong("tenant_id"))){"قيد مرتبط بمستأجر غير موجود"};require(kind in listOf("RENT","PAYMENT","CHARGE","CREDIT")&&o.getLong("amount")>0);if(!o.isNull("receipt_no"))require(o.getLong("receipt_no")>0){"رقم إيصال غير صالح"};if(kind=="RENT")require(Regex("\\d{4}-(0[1-9]|1[0-2])").matches(o.optString("period"))){"فترة إيجار غير صالحة"};d.insertOrThrow("ledger",null,values{put("id",o.getLong("id"));put("tenant_id",o.getLong("tenant_id"));put("kind",kind);if(!o.isNull("period"))put("period",o.getString("period"));put("amount",o.getLong("amount"));if(!o.isNull("receipt_no"))put("receipt_no",o.getLong("receipt_no"));if(!o.isNull("receiver"))put("receiver",o.getString("receiver"));if(!o.isNull("note"))put("note",o.getString("note"));put("created_at",o.getString("created_at"))})}
    val ra=root.optJSONArray("rent_rates")?:JSONArray()
    if(ra.length()>0){for(i in 0 until ra.length()){val o=ra.getJSONObject(i);require(tenantIds.contains(o.getLong("tenant_id"))){"تعرفة مرتبطة بمستأجر غير موجود"};require(o.getLong("amount")>0);d.insertOrThrow("rent_rates",null,values{put("id",o.getLong("id"));put("tenant_id",o.getLong("tenant_id"));put("amount",o.getLong("amount"));put("effective_from",o.getString("effective_from"));put("created_at",o.optString("created_at",stamp()))})}}
    if(ra.length()==0){for(i in 0 until ta.length()){val o=ta.getJSONObject(i);val created=o.optString("created_at",stamp());val month=created.take(7);val effective=if(month<"2026-11")"2026-11" else month;d.insertOrThrow("rent_rates",null,values{put("tenant_id",o.getLong("id"));put("amount",o.getLong("rent"));put("effective_from",effective);put("created_at",created)})}}
@@ -250,12 +250,16 @@ class MainActivity:Activity(){
  private fun restoreLatestAutomatic(){try{val folder=java.io.File(filesDir,"backups");val latest=folder.listFiles()?.filter{it.name.startsWith("alajag-backup-")}?.maxByOrNull{it.name}?:throw IllegalStateException("لا توجد نسخة تلقائية محفوظة");AlertDialog.Builder(this).setTitle("استعادة النسخة التلقائية").setMessage("سيتم استعادة النسخة: "+latest.name+" واستبدال البيانات الحالية.").setNegativeButton("إلغاء",null).setPositiveButton("استعادة"){_,_->try{db.restore(latest.readText(Charsets.UTF_8));db.generateDuePeriods();refresh();toast("تمت استعادة النسخة التلقائية")}catch(e:Exception){toast("تعذرت الاستعادة: "+e.message)}}.show()}catch(e:Exception){toast(e.message?:"لا توجد نسخة تلقائية")}}
  override fun onActivityResult(req:Int,res:Int,data:Intent?){super.onActivityResult(req,res,data);if(res!=RESULT_OK||data?.data==null){pdf?.close();pdf=null;return};try{when(req){81->contentResolver.openOutputStream(data.data!!)?.use{it.write(db.backup().toByteArray(Charsets.UTF_8))}.also{toast("تم حفظ النسخة الكاملة")};82->{val raw=contentResolver.openInputStream(data.data!!)!!.bufferedReader().use{it.readText()};db.restore(raw);db.generateDuePeriods();refresh();toast("تمت استعادة النسخة")};83->{pdf?.let{p->contentResolver.openOutputStream(data.data!!)?.use{p.writeTo(it)};p.close();pdf=null;toast("تم حفظ PDF")}}}}catch(e:Exception){toast("تعذرت العملية: "+e.message)}}
  private fun validateDateRange(from:String,to:String){
-  val format=SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false}
-  format.timeZone=TimeZone.getTimeZone("UTC")
-  val start=if(from.isBlank())null else try{format.parse(from)}catch(_:Exception){null}
-  val end=if(to.isBlank())null else try{format.parse(to)}catch(_:Exception){null}
-  require(from.isBlank()||start!=null){"تاريخ البداية يجب أن يكون بصيغة YYYY-MM-DD"}
-  require(to.isBlank()||end!=null){"تاريخ النهاية يجب أن يكون بصيغة YYYY-MM-DD"}
+  fun parseExact(value:String):Date?{
+   if(value.isBlank())return null
+   val format=SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false;timeZone=TimeZone.getTimeZone("UTC")}
+   val position=java.text.ParsePosition(0)
+   val parsed=format.parse(value,position)
+   return if(parsed!=null&&position.index==value.length)parsed else null
+  }
+  val start=parseExact(from);val end=parseExact(to)
+  require(from.isBlank()||start!=null){"تاريخ البداية يجب أن يكون تاريخاً صحيحاً بصيغة YYYY-MM-DD"}
+  require(to.isBlank()||end!=null){"تاريخ النهاية يجب أن يكون تاريخاً صحيحاً بصيغة YYYY-MM-DD"}
   require(start==null||end==null||!start.after(end)){"تاريخ البداية يجب ألا يتجاوز تاريخ النهاية"}
  }
  private fun share(subject:String,body:String){startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_SUBJECT,subject);putExtra(Intent.EXTRA_TEXT,body)},"مشاركة"))}
