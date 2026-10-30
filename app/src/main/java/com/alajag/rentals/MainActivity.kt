@@ -110,7 +110,7 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,3){
 
 class MainActivity:Activity(){
  private lateinit var db:RentalDb;private lateinit var list:LinearLayout;private lateinit var summary:TextView;private var query="";private var includeInactive=false;private var pdf:PdfDocument?=null
- override fun onCreate(state:Bundle?){super.onCreate(state);db=RentalDb(this);db.generateDuePeriods();createChannel();Schedule.install(this);home()}
+ override fun onCreate(state:Bundle?){super.onCreate(state);db=RentalDb(this);db.generateDuePeriods();createChannel();Schedule.install(this);if(android.os.Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),2026);home()}
  private fun createChannel(){if(android.os.Build.VERSION.SDK_INT>=26){val m=getSystemService(NotificationManager::class.java);if(m.getNotificationChannel("rent_due")==null)m.createNotificationChannel(NotificationChannel("rent_due","تنبيهات الإيجارات",NotificationManager.IMPORTANCE_DEFAULT))}}
  private fun home(){
   val root=LinearLayout(this).apply{orientation=1;setPadding(14,8,14,8);layoutDirection=View.LAYOUT_DIRECTION_RTL;setBackgroundColor(Color.rgb(246,248,250))}
