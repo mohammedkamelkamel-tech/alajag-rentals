@@ -34,8 +34,6 @@ class LedgerMathTest {
     fun rejectsUnknownLedgerKind() {
         LedgerMath.balance(listOf(LedgerAmount("UNKNOWN", 10)))
     }
-}
-
     @Test(expected = IllegalArgumentException::class)
     fun rejectsZeroOrNegativeEntries() {
         LedgerMath.balance(listOf(LedgerAmount("PAYMENT", 0)))
@@ -48,3 +46,4 @@ class LedgerMathTest {
             LedgerAmount("CHARGE", 1)
         ))
     }
+}
