@@ -61,6 +61,10 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,4){
   val d=writableDatabase;d.beginTransaction()
   try{
    d.update("tenants",values{put("name",name.trim());put("phone",phone.trim());put("rent",rent);put("notes",notes.trim());put("active",if(active)1 else 0)},"id=?",arrayOf(t.id.toString()))
+   if(!t.active && active){
+    val next=Calendar.getInstance().apply{add(Calendar.MONTH,1)}
+    saveSetting("billing_start_"+t.id,String.format(Locale.US,"%04d-%02d",next.get(Calendar.YEAR),next.get(Calendar.MONTH)+1))
+   }
    val next=Calendar.getInstance().apply{add(Calendar.MONTH,1)}
    val effective=String.format(Locale.US,"%04d-%02d",next.get(Calendar.YEAR),next.get(Calendar.MONTH)+1)
    d.delete("rent_rates","tenant_id=? AND effective_from=?",arrayOf(t.id.toString(),effective))
@@ -80,12 +84,21 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,4){
 private fun rentForPeriod(tenantId:Long,period:String):Long{
   return android.database.DatabaseUtils.longForQuery(readableDatabase,"SELECT amount FROM rent_rates WHERE tenant_id=? AND effective_from<=? ORDER BY effective_from DESC,id DESC LIMIT 1",arrayOf(tenantId.toString(),period))
  }
-  fun generateDuePeriods(today:Calendar=Calendar.getInstance()){
+  private fun setting(key:String):String?{
+  readableDatabase.rawQuery("SELECT value FROM app_settings WHERE key=?",arrayOf(key)).use{c->if(c.moveToFirst())return c.getString(0)}
+  return null
+ }
+ private fun saveSetting(key:String,value:String){
+  writableDatabase.insertWithOnConflict("app_settings",null,values{put("key",key);put("value",value)},SQLiteDatabase.CONFLICT_REPLACE)
+ }
+ fun generateDuePeriods(today:Calendar=Calendar.getInstance()){
   val min=Calendar.getInstance().apply{set(2026,Calendar.NOVEMBER,1,0,0,0);set(Calendar.MILLISECOND,0)}
   val end=Calendar.getInstance().apply{timeInMillis=today.timeInMillis;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)}
   tenants().forEach{t->
-   val created=Calendar.getInstance().apply{time=SimpleDateFormat("yyyy-MM-dd HH:mm:ss",Locale.US).parse(t.created)?:Date()}
-   val month=if(created.after(min))Calendar.getInstance().apply{timeInMillis=created.timeInMillis;set(Calendar.DAY_OF_MONTH,1);set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)} else min.clone() as Calendar
+   val createdPeriod=t.created.take(7)
+   val billingPeriod=setting("billing_start_"+t.id) ?: "2026-11"
+   val firstPeriod=listOf("2026-11",createdPeriod,billingPeriod).maxOrNull() ?: "2026-11"
+   val month=Calendar.getInstance().apply{time=SimpleDateFormat("yyyy-MM-dd",Locale.US).parse(firstPeriod+"-01")?:min.time;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)}
    while(!month.after(end)){
     val due=month.clone() as Calendar;due.set(Calendar.DAY_OF_MONTH,due.getActualMaximum(Calendar.DAY_OF_MONTH))
     if(!due.after(end)){val period=String.format(Locale.US,"%04d-%02d",month.get(Calendar.YEAR),month.get(Calendar.MONTH)+1);insertRent(t,period,due)}
