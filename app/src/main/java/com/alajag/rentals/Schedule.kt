@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 
 object Schedule {
     fun install(context: Context) {
-        val request = PeriodicWorkRequestBuilder<RentWorker>(24, TimeUnit.HOURS).build()
+        val request = PeriodicWorkRequestBuilder<RentWorker>(12, TimeUnit.HOURS).build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             "alajag_monthly_rent_check", ExistingPeriodicWorkPolicy.KEEP, request
         )
