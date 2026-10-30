@@ -252,19 +252,7 @@ class MainActivity:Activity(){
  private fun restore(){AlertDialog.Builder(this).setTitle("استعادة نسخة").setMessage("سيتم استبدال البيانات الحالية. احفظ نسخة احتياطية منها أولاً.").setNegativeButton("إلغاء",null).setNeutralButton("آخر نسخة تلقائية"){_,_->restoreLatestAutomatic()}.setPositiveButton("اختيار ملف"){_,_->val i=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="application/json"};startActivityForResult(i,82)}.show()}
  private fun restoreLatestAutomatic(){try{val folder=java.io.File(filesDir,"backups");val latest=folder.listFiles()?.filter{it.name.startsWith("alajag-backup-")}?.maxByOrNull{it.name}?:throw IllegalStateException("لا توجد نسخة تلقائية محفوظة");AlertDialog.Builder(this).setTitle("استعادة النسخة التلقائية").setMessage("سيتم استعادة النسخة: "+latest.name+" واستبدال البيانات الحالية.").setNegativeButton("إلغاء",null).setPositiveButton("استعادة"){_,_->try{db.restore(latest.readText(Charsets.UTF_8));db.generateDuePeriods();refresh();toast("تمت استعادة النسخة التلقائية")}catch(e:Exception){toast("تعذرت الاستعادة: "+e.message)}}.show()}catch(e:Exception){toast(e.message?:"لا توجد نسخة تلقائية")}}
  override fun onActivityResult(req:Int,res:Int,data:Intent?){super.onActivityResult(req,res,data);if(res!=RESULT_OK||data?.data==null){pdf?.close();pdf=null;return};try{when(req){81->contentResolver.openOutputStream(data.data!!)?.use{it.write(db.backup().toByteArray(Charsets.UTF_8))}.also{toast("تم حفظ النسخة الكاملة")};82->{val raw=contentResolver.openInputStream(data.data!!)!!.bufferedReader().use{it.readText()};db.restore(raw);db.generateDuePeriods();refresh();toast("تمت استعادة النسخة")};83->{pdf?.let{p->contentResolver.openOutputStream(data.data!!)?.use{p.writeTo(it)};p.close();pdf=null;toast("تم حفظ PDF")}}}}catch(e:Exception){toast("تعذرت العملية: "+e.message)}}
- private fun validateDateRange(from:String,to:String){
-  fun parseExact(value:String):Date?{
-   if(value.isBlank())return null
-   val format=SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false;timeZone=TimeZone.getTimeZone("UTC")}
-   val position=java.text.ParsePosition(0)
-   val parsed=format.parse(value,position)
-   return if(parsed!=null&&position.index==value.length)parsed else null
-  }
-  val start=parseExact(from);val end=parseExact(to)
-  require(from.isBlank()||start!=null){"تاريخ البداية يجب أن يكون تاريخاً صحيحاً بصيغة YYYY-MM-DD"}
-  require(to.isBlank()||end!=null){"تاريخ النهاية يجب أن يكون تاريخاً صحيحاً بصيغة YYYY-MM-DD"}
-  require(start==null||end==null||!start.after(end)){"تاريخ البداية يجب ألا يتجاوز تاريخ النهاية"}
- }
+ private fun validateDateRange(from:String,to:String)=DateRangeRules.validate(from,to)
  private fun share(subject:String,body:String){startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_SUBJECT,subject);putExtra(Intent.EXTRA_TEXT,body)},"مشاركة"))}
  private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
 }
