@@ -35,3 +35,16 @@ class LedgerMathTest {
         LedgerMath.balance(listOf(LedgerAmount("UNKNOWN", 10)))
     }
 }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsZeroOrNegativeEntries() {
+        LedgerMath.balance(listOf(LedgerAmount("PAYMENT", 0)))
+    }
+
+    @Test(expected = ArithmeticException::class)
+    fun rejectsBalanceOverflowInsteadOfWrapping() {
+        LedgerMath.balance(listOf(
+            LedgerAmount("RENT", Long.MAX_VALUE),
+            LedgerAmount("CHARGE", 1)
+        ))
+    }
