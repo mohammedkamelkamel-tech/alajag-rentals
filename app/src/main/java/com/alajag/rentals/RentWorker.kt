@@ -30,8 +30,11 @@ class RentWorker(context: Context, params: WorkerParameters) : Worker(context, p
         folder.listFiles()?.filter { it.name.startsWith("alajag-backup-") }
             ?.sortedByDescending { it.name }?.drop(30)?.forEach { it.delete() }
 
-        if (now.get(Calendar.DAY_OF_MONTH) == now.getActualMaximum(Calendar.DAY_OF_MONTH)) {
-            val month = SimpleDateFormat("yyyy-MM", Locale.US).format(Date())
+        if (now.get(Calendar.DAY_OF_MONTH) == now.getActualMaximum(Calendar.DAY_OF_MONTH) || now.get(Calendar.DAY_OF_MONTH) == 1) {
+            val target = (now.clone() as Calendar).apply {
+                if (get(Calendar.DAY_OF_MONTH) == 1) add(Calendar.MONTH, -1)
+            }
+            val month = SimpleDateFormat("yyyy-MM", Locale.US).format(target.time)
             val prefs = applicationContext.getSharedPreferences("rent_notifications", Context.MODE_PRIVATE)
             if (prefs.getString("last_month", "") != month) {
                 val channel = "rent_due"
