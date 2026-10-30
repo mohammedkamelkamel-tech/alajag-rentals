@@ -26,8 +26,14 @@ class RentWorker(context: Context, params: WorkerParameters) : Worker(context, p
         if (!folder.exists()) folder.mkdirs()
         val day = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         val backup = File(folder, "alajag-backup-" + day + ".json")
-        backup.writeText(db.backup(), Charsets.UTF_8)
-        folder.listFiles()?.filter { it.name.startsWith("alajag-backup-") }
+        val temporary = File(folder, backup.name + ".tmp")
+        temporary.writeText(db.backup(), Charsets.UTF_8)
+        if (backup.exists() && !backup.delete()) throw IllegalStateException("Cannot replace previous backup")
+        if (!temporary.renameTo(backup)) {
+            temporary.copyTo(backup, overwrite = true)
+            temporary.delete()
+        }
+        folder.listFiles()?.filter { it.name.startsWith("alajag-backup-") && it.name.endsWith(".json") }
             ?.sortedByDescending { it.name }?.drop(30)?.forEach { it.delete() }
 
         if (now.get(Calendar.DAY_OF_MONTH) == now.getActualMaximum(Calendar.DAY_OF_MONTH) || now.get(Calendar.DAY_OF_MONTH) == 1) {
