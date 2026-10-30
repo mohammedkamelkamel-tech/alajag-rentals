@@ -208,9 +208,27 @@ class MainActivity:Activity(){
   db.rows(t.id,from,to).forEach{e->val label=when(e.kind){"RENT"->"إيجار "+e.period;"PAYMENT"->"تحصيل";"CHARGE"->"مبلغ مستحق";else->"رصيد دائن"};out.append(e.created+" | "+label+" | "+e.amount+" ريال");if(e.receipt!=null)out.append(" | إيصال "+e.receipt);if(!e.receiver.isNullOrBlank())out.append(" | المستلم "+e.receiver);if(!e.note.isNullOrBlank())out.append(" | "+e.note);out.append("\\n")}
   val closing=if(to.isBlank())db.balance(t.id) else db.balanceAt(t.id,to);out.append("\\nالرصيد حتى نهاية الفترة: "+closing+" ريال");return out.toString()
  }
+ private fun reportText(from:String,to:String):String{
+  val out=StringBuilder("العجاج - الإيجارات\\nتقرير الفترة: "+from+" إلى "+to+"\\nتاريخ التقرير: "+stamp()+"\\n\\n")
+  var rent=0L;var paid=0L;var charge=0L;var credit=0L
+  db.tenants("",true).forEach{t->
+   val entries=db.rows(t.id,from,to)
+   if(entries.isNotEmpty()){
+    out.append("\\n"+t.name+"\\n")
+    entries.forEach{e->
+     val label=when(e.kind){"RENT"->"إيجار "+e.period;"PAYMENT"->"تحصيل إيصال "+(e.receipt?:0);"CHARGE"->"مبلغ إضافي";else->"رصيد دائن"}
+     out.append("  "+e.created+" | "+label+" | "+e.amount+" ريال\\n")
+     when(e.kind){"RENT"->rent+=e.amount;"PAYMENT"->paid+=e.amount;"CHARGE"->charge+=e.amount;else->credit+=e.amount}
+    }
+    out.append("  الرصيد الحالي: "+db.balance(t.id)+" ريال\\n")
+   }
+  }
+  out.append("\\nالإجماليات للفترة\\nالإيجارات: "+rent+" ريال\\nالتحصيلات: "+paid+" ريال\\nالمبالغ الإضافية: "+charge+" ريال\\nالأرصدة الدائنة المسجلة: "+credit+" ريال")
+  return out.toString()
+ }
  private fun reportDialog(){
   val from=field("من تاريخ YYYY-MM-DD");val to=field("إلى تاريخ YYYY-MM-DD");val box=LinearLayout(this).apply{orientation=1;addView(from);addView(to)}
-  AlertDialog.Builder(this).setTitle("تقرير الفترة").setView(box).setNegativeButton("إلغاء",null).setNeutralButton("عرض"){_,_->val a=db.totals(from.text.toString(),to.text.toString());toast("الإيجارات: "+a[0]+" ريال\\nالتحصيلات: "+a[1]+" ريال\\nإضافات: "+a[2]+" ريال\\nأرصدة دائنة: "+a[3]+" ريال")}.setPositiveButton("PDF"){_,_->val a=db.totals(from.text.toString(),to.text.toString());val body="الفترة: "+from.text+" إلى "+to.text+"\\nالإيجارات: "+a[0]+" ريال\\nالتحصيلات: "+a[1]+" ريال\\nالمستحقات الإضافية: "+a[2]+" ريال\\nالأرصدة الدائنة: "+a[3]+" ريال\\n\\n"+db.tenants("",true).joinToString("\\n"){it.name+": "+db.balance(it.id)+" ريال"};makePdf("تقرير الإيجارات والتحصيل",body,"rent-report.pdf")}.show()
+  AlertDialog.Builder(this).setTitle("تقرير الفترة").setView(box).setNegativeButton("إلغاء",null).setNeutralButton("عرض"){_,_->val a=db.totals(from.text.toString(),to.text.toString());share("تقرير الإيجارات والتحصيل",reportText(from.text.toString(),to.text.toString()))}.setPositiveButton("PDF"){_,_->val a=db.totals(from.text.toString(),to.text.toString());val body=reportText(from.text.toString(),to.text.toString());makePdf("تقرير الإيجارات والتحصيل",body,"rent-report.pdf")}.show()
  }
  private fun makePdf(title:String,body:String,file:String){
   val doc=PdfDocument();val paint=android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply{textSize=13f;color=Color.BLACK};val text="العجاج - الإيجارات\\n"+title+"\\nالتاريخ: "+stamp()+"\\n\\n"+body;val layout=android.text.StaticLayout.Builder.obtain(text,0,text.length,paint,520).setAlignment(android.text.Layout.Alignment.ALIGN_OPPOSITE).setTextDirection(android.text.TextDirectionHeuristics.RTL).setLineSpacing(3f,1f).build();var start=0;var pageNo=1
