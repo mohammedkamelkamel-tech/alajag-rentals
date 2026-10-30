@@ -208,7 +208,7 @@ class MainActivity:Activity(){
  }
  private fun statementDialog(t:Tenant){
   val from=field("من تاريخ YYYY-MM-DD (اختياري)");val to=field("إلى تاريخ YYYY-MM-DD (اختياري)");val box=LinearLayout(this).apply{orientation=1;addView(from);addView(to)}
-  AlertDialog.Builder(this).setTitle("كشف حساب "+t.name).setView(box).setNegativeButton("إلغاء",null).setNeutralButton("مشاركة نصية"){_,_->share("كشف حساب "+t.name,statementText(t,from.text.toString(),to.text.toString()))}.setPositiveButton("PDF"){_,_->makePdf("كشف حساب "+t.name,statementText(t,from.text.toString(),to.text.toString()),"statement-"+t.id+".pdf")}.show()
+  AlertDialog.Builder(this).setTitle("كشف حساب "+t.name).setView(box).setNegativeButton("إلغاء",null).setNeutralButton("مشاركة نصية"){_,_->try{share("كشف حساب "+t.name,statementText(t,from.text.toString(),to.text.toString()))}catch(e:Exception){toast(e.message?:"تحقق من التاريخ")}}.setPositiveButton("PDF"){_,_->try{makePdf("كشف حساب "+t.name,statementText(t,from.text.toString(),to.text.toString()),"statement-"+t.id+".pdf")}catch(e:Exception){toast(e.message?:"تحقق من التاريخ")}}.show()
  }
  private fun statementText(t:Tenant,from:String,to:String):String{
   validateDateRange(from,to)
@@ -238,7 +238,7 @@ class MainActivity:Activity(){
  }
  private fun reportDialog(){
   val from=field("من تاريخ YYYY-MM-DD");val to=field("إلى تاريخ YYYY-MM-DD");val box=LinearLayout(this).apply{orientation=1;addView(from);addView(to)}
-  AlertDialog.Builder(this).setTitle("تقرير الفترة").setView(box).setNegativeButton("إلغاء",null).setNeutralButton("عرض"){_,_->val a=db.totals(from.text.toString(),to.text.toString());share("تقرير الإيجارات والتحصيل",reportText(from.text.toString(),to.text.toString()))}.setPositiveButton("PDF"){_,_->val a=db.totals(from.text.toString(),to.text.toString());val body=reportText(from.text.toString(),to.text.toString());makePdf("تقرير الإيجارات والتحصيل",body,"rent-report.pdf")}.show()
+  AlertDialog.Builder(this).setTitle("تقرير الفترة").setView(box).setNegativeButton("إلغاء",null).setNeutralButton("عرض"){_,_->try{share("تقرير الإيجارات والتحصيل",reportText(from.text.toString(),to.text.toString()))}catch(e:Exception){toast(e.message?:"تحقق من التاريخ")}}.setPositiveButton("PDF"){_,_->try{val body=reportText(from.text.toString(),to.text.toString());makePdf("تقرير الإيجارات والتحصيل",body,"rent-report.pdf")}catch(e:Exception){toast(e.message?:"تحقق من التاريخ")}}.show()
  }
  private fun makePdf(title:String,body:String,file:String){
   val doc=PdfDocument();val paint=android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply{textSize=13f;color=Color.BLACK};val text="العجاج - الإيجارات\\n"+title+"\\nالتاريخ: "+stamp()+"\\n\\n"+body;val layout=android.text.StaticLayout.Builder.obtain(text,0,text.length,paint,520).setAlignment(android.text.Layout.Alignment.ALIGN_OPPOSITE).setTextDirection(android.text.TextDirectionHeuristics.RTL).setLineSpacing(3f,1f).build();var start=0;var pageNo=1
