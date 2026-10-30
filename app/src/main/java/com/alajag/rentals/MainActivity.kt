@@ -19,7 +19,7 @@ private fun stamp():String=SimpleDateFormat("yyyy-MM-dd HH:mm:ss",Locale.US).for
 data class Tenant(val id:Long,val name:String,val phone:String,val rent:Long,val notes:String,val active:Boolean,val created:String)
 data class LedgerRow(val id:Long,val kind:String,val period:String?,val amount:Long,val receipt:Long?,val receiver:String?,val note:String?,val created:String)
 
-class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,3){
+class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,4){
  override fun onCreate(d:SQLiteDatabase){
   d.execSQL("CREATE TABLE tenants(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT NOT NULL DEFAULT '',rent INTEGER NOT NULL CHECK(rent>0),notes TEXT NOT NULL DEFAULT '',active INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL)")
   d.execSQL("CREATE TABLE ledger(id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id INTEGER NOT NULL,kind TEXT NOT NULL,period TEXT,amount INTEGER NOT NULL CHECK(amount>0),receipt_no INTEGER,receiver TEXT,note TEXT,created_at TEXT NOT NULL,FOREIGN KEY(tenant_id) REFERENCES tenants(id))")
@@ -29,10 +29,17 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,3){
   d.execSQL("CREATE TABLE counters(name TEXT PRIMARY KEY,value INTEGER NOT NULL)")
   d.execSQL("INSERT INTO counters(name,value) VALUES('receipt',0)")
   d.execSQL("CREATE TABLE app_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
+  d.execSQL("CREATE TABLE rent_rates(id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),effective_from TEXT NOT NULL,created_at TEXT NOT NULL,FOREIGN KEY(tenant_id) REFERENCES tenants(id))")
+  d.execSQL("CREATE INDEX rent_rate_lookup ON rent_rates(tenant_id,effective_from)")
  }
  override fun onUpgrade(d:SQLiteDatabase,old:Int,now:Int){
   if(old<2)d.execSQL("CREATE TABLE IF NOT EXISTS app_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL DEFAULT '')")
   if(old<3){d.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS unique_receipt_no ON ledger(receipt_no) WHERE receipt_no IS NOT NULL");d.execSQL("CREATE INDEX IF NOT EXISTS ledger_tenant_date ON ledger(tenant_id,created_at)")}
+  if(old<4){
+   d.execSQL("CREATE TABLE IF NOT EXISTS rent_rates(id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id INTEGER NOT NULL,amount INTEGER NOT NULL CHECK(amount>0),effective_from TEXT NOT NULL,created_at TEXT NOT NULL,FOREIGN KEY(tenant_id) REFERENCES tenants(id))")
+   d.execSQL("CREATE INDEX IF NOT EXISTS rent_rate_lookup ON rent_rates(tenant_id,effective_from)")
+   d.execSQL("INSERT INTO rent_rates(tenant_id,amount,effective_from,created_at) SELECT id,rent,CASE WHEN substr(created_at,1,7)<'2026-11' THEN '2026-11' ELSE substr(created_at,1,7) END,created_at FROM tenants WHERE NOT EXISTS(SELECT 1 FROM rent_rates r WHERE r.tenant_id=tenants.id)")
+  }
  }
  private fun values(block:android.content.ContentValues.()->Unit)=android.content.ContentValues().apply(block)
  fun tenants(search:String="",all:Boolean=false):List<Tenant>{
@@ -42,11 +49,24 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,3){
  }
  fun addTenant(name:String,phone:String,rent:Long,notes:String){
   require(name.isNotBlank()){"اسم المستأجر مطلوب"};require(rent>0){"الإيجار يجب أن يكون أكبر من صفر"}
-  writableDatabase.insertOrThrow("tenants",null,values{put("name",name.trim());put("phone",phone.trim());put("rent",rent);put("notes",notes.trim());put("active",1);put("created_at",stamp())})
+  val d=writableDatabase;d.beginTransaction()
+  try{val created=stamp();val id=d.insertOrThrow("tenants",null,values{put("name",name.trim());put("phone",phone.trim());put("rent",rent);put("notes",notes.trim());put("active",1);put("created_at",created)})
+   val effective=SimpleDateFormat("yyyy-MM",Locale.US).format(Date())
+   d.insertOrThrow("rent_rates",null,values{put("tenant_id",id);put("amount",rent);put("effective_from",if(effective<"2026-11")"2026-11" else effective);put("created_at",created)})
+   d.setTransactionSuccessful()
+  }finally{d.endTransaction()}
  }
  fun editTenant(t:Tenant,name:String,phone:String,rent:Long,notes:String,active:Boolean){
   require(name.isNotBlank()){"اسم المستأجر مطلوب"};require(rent>0){"الإيجار يجب أن يكون أكبر من صفر"}
-  writableDatabase.update("tenants",values{put("name",name.trim());put("phone",phone.trim());put("rent",rent);put("notes",notes.trim());put("active",if(active)1 else 0)},"id=?",arrayOf(t.id.toString()))
+  val d=writableDatabase;d.beginTransaction()
+  try{
+   d.update("tenants",values{put("name",name.trim());put("phone",phone.trim());put("rent",rent);put("notes",notes.trim());put("active",if(active)1 else 0)},"id=?",arrayOf(t.id.toString()))
+   val next=Calendar.getInstance().apply{add(Calendar.MONTH,1)}
+   val effective=String.format(Locale.US,"%04d-%02d",next.get(Calendar.YEAR),next.get(Calendar.MONTH)+1)
+   d.delete("rent_rates","tenant_id=? AND effective_from=?",arrayOf(t.id.toString(),effective))
+   d.insertOrThrow("rent_rates",null,values{put("tenant_id",t.id);put("amount",rent);put("effective_from",effective);put("created_at",stamp())})
+   d.setTransactionSuccessful()
+  }finally{d.endTransaction()}
  }
  fun payment(t:Tenant,amount:Long,receiver:String,note:String):Long{
   require(amount>0){"المبلغ يجب أن يكون أكبر من صفر"};val d=writableDatabase;d.beginTransaction()
@@ -57,7 +77,10 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,3){
  }
  fun adjustment(t:Tenant,kind:String,amount:Long,note:String){require(kind=="CHARGE"||kind=="CREDIT");require(amount>0);writableDatabase.insertOrThrow("ledger",null,values{put("tenant_id",t.id);put("kind",kind);put("amount",amount);put("note",note);put("created_at",stamp())})}
  fun balance(id:Long):Long=LedgerMath.balance(rows(id).map{LedgerAmount(it.kind,it.amount)})
- fun generateDuePeriods(today:Calendar=Calendar.getInstance()){
+private fun rentForPeriod(tenantId:Long,period:String):Long{
+  return android.database.DatabaseUtils.longForQuery(readableDatabase,"SELECT amount FROM rent_rates WHERE tenant_id=? AND effective_from<=? ORDER BY effective_from DESC,id DESC LIMIT 1",arrayOf(tenantId.toString(),period))
+ }
+  fun generateDuePeriods(today:Calendar=Calendar.getInstance()){
   val min=Calendar.getInstance().apply{set(2026,Calendar.NOVEMBER,1,0,0,0);set(Calendar.MILLISECOND,0)}
   val end=Calendar.getInstance().apply{timeInMillis=today.timeInMillis;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)}
   tenants().forEach{t->
@@ -73,7 +96,7 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,3){
  private fun insertRent(t:Tenant,period:String,due:Calendar){
   val d=writableDatabase;d.beginTransaction()
   try{val n=android.database.DatabaseUtils.longForQuery(d,"SELECT COUNT(*) FROM ledger WHERE tenant_id=? AND kind='RENT' AND period=?",arrayOf(t.id.toString(),period))
-   if(n==0L){val date=String.format(Locale.US,"%04d-%02d-%02d 23:59:00",due.get(Calendar.YEAR),due.get(Calendar.MONTH)+1,due.get(Calendar.DAY_OF_MONTH));d.insertOrThrow("ledger",null,values{put("tenant_id",t.id);put("kind","RENT");put("period",period);put("amount",t.rent);put("note","إيجار شهر "+period);put("created_at",date)})}
+   if(n==0L){val date=String.format(Locale.US,"%04d-%02d-%02d 23:59:00",due.get(Calendar.YEAR),due.get(Calendar.MONTH)+1,due.get(Calendar.DAY_OF_MONTH));d.insertOrThrow("ledger",null,values{put("tenant_id",t.id);put("kind","RENT");put("period",period);put("amount",rentForPeriod(t.id,period));put("note","إيجار شهر "+period);put("created_at",date)})}
    d.setTransactionSuccessful()
   }finally{d.endTransaction()}
  }
@@ -91,7 +114,8 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,3){
   val la=JSONArray();readableDatabase.rawQuery("SELECT id,tenant_id,kind,period,amount,receipt_no,receiver,note,created_at FROM ledger ORDER BY id",null).use{c->while(c.moveToNext())la.put(JSONObject().put("id",c.getLong(0)).put("tenant_id",c.getLong(1)).put("kind",c.getString(2)).put("period",if(c.isNull(3))JSONObject.NULL else c.getString(3)).put("amount",c.getLong(4)).put("receipt_no",if(c.isNull(5))JSONObject.NULL else c.getLong(5)).put("receiver",if(c.isNull(6))JSONObject.NULL else c.getString(6)).put("note",if(c.isNull(7))JSONObject.NULL else c.getString(7)).put("created_at",c.getString(8)))}
   val ca=JSONArray();readableDatabase.rawQuery("SELECT name,value FROM counters",null).use{c->while(c.moveToNext())ca.put(JSONObject().put("name",c.getString(0)).put("value",c.getLong(1)))}
   val sa=JSONArray();readableDatabase.rawQuery("SELECT key,value FROM app_settings",null).use{c->while(c.moveToNext())sa.put(JSONObject().put("key",c.getString(0)).put("value",c.getString(1)))}
-  return root.put("tenants",ta).put("ledger",la).put("counters",ca).put("settings",sa).toString(2)
+  val ra=JSONArray();readableDatabase.rawQuery("SELECT id,tenant_id,amount,effective_from,created_at FROM rent_rates ORDER BY id",null).use{c->while(c.moveToNext())ra.put(JSONObject().put("id",c.getLong(0)).put("tenant_id",c.getLong(1)).put("amount",c.getLong(2)).put("effective_from",c.getString(3)).put("created_at",c.getString(4)))}
+  return root.put("tenants",ta).put("ledger",la).put("counters",ca).put("settings",sa).put("rent_rates",ra).toString(2)
  }
  fun restore(raw:String){
   val root=JSONObject(raw);require(root.optString("format").startsWith("alajag-rentals")){"ملف النسخة غير صالح"}
@@ -101,6 +125,9 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,3){
    d.delete("ledger",null,null);d.delete("tenants",null,null);d.delete("counters",null,null);d.delete("app_settings",null,null)
    for(i in 0 until ta.length()){val o=ta.getJSONObject(i);require(o.getLong("rent")>0&&o.getString("name").isNotBlank());d.insertOrThrow("tenants",null,values{put("id",o.getLong("id"));put("name",o.getString("name"));put("phone",o.optString("phone"));put("rent",o.getLong("rent"));put("notes",o.optString("notes"));put("active",o.optInt("active",1));put("created_at",o.optString("created_at",stamp()))})}
    for(i in 0 until la.length()){val o=la.getJSONObject(i);val kind=o.getString("kind");require(kind in listOf("RENT","PAYMENT","CHARGE","CREDIT")&&o.getLong("amount")>0);d.insertOrThrow("ledger",null,values{put("id",o.getLong("id"));put("tenant_id",o.getLong("tenant_id"));put("kind",kind);if(!o.isNull("period"))put("period",o.getString("period"));put("amount",o.getLong("amount"));if(!o.isNull("receipt_no"))put("receipt_no",o.getLong("receipt_no"));if(!o.isNull("receiver"))put("receiver",o.getString("receiver"));if(!o.isNull("note"))put("note",o.getString("note"));put("created_at",o.getString("created_at"))})}
+   val ra=root.optJSONArray("rent_rates")?:JSONArray()
+   if(ra.length()>0){for(i in 0 until ra.length()){val o=ra.getJSONObject(i);require(o.getLong("amount")>0);d.insertOrThrow("rent_rates",null,values{put("id",o.getLong("id"));put("tenant_id",o.getLong("tenant_id"));put("amount",o.getLong("amount"));put("effective_from",o.getString("effective_from"));put("created_at",o.optString("created_at",stamp()))})}}
+   else {d.execSQL("INSERT INTO rent_rates(tenant_id,amount,effective_from,created_at) SELECT id,rent,'2026-11',created_at FROM tenants")}
    val ca=root.optJSONArray("counters")?:JSONArray();for(i in 0 until ca.length()){val o=ca.getJSONObject(i);d.insertOrThrow("counters",null,values{put("name",o.getString("name"));put("value",o.getLong("value"))})}
    val sa=root.optJSONArray("settings")?:JSONArray();for(i in 0 until sa.length()){val o=sa.getJSONObject(i);d.insertOrThrow("app_settings",null,values{put("key",o.getString("key"));put("value",o.getString("value"))})}
    d.execSQL("INSERT OR IGNORE INTO counters(name,value) VALUES('receipt',0)");d.setTransactionSuccessful()
