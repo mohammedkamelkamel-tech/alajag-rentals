@@ -145,8 +145,9 @@ private fun rentForPeriod(tenantId:Long,period:String):Long{
    if(ra.length()==0){for(i in 0 until ta.length()){val o=ta.getJSONObject(i);val created=o.optString("created_at",stamp());val month=created.take(7);val effective=if(month<"2026-11")"2026-11" else month;d.insertOrThrow("rent_rates",null,values{put("tenant_id",o.getLong("id"));put("amount",o.getLong("rent"));put("effective_from",effective);put("created_at",created)})}}
    val ca=root.optJSONArray("counters")?:JSONArray();for(i in 0 until ca.length()){val o=ca.getJSONObject(i);d.insertOrThrow("counters",null,values{put("name",o.getString("name"));put("value",o.getLong("value"))})}
    val sa=root.optJSONArray("settings")?:JSONArray();for(i in 0 until sa.length()){val o=sa.getJSONObject(i);d.insertOrThrow("app_settings",null,values{put("key",o.getString("key"));put("value",o.getString("value"))})}
-   d.execSQL("INSERT OR IGNORE INTO counters(name,value) VALUES('receipt',0)");d.setTransactionSuccessful()
+   d.execSQL("INSERT OR IGNORE INTO counters(name,value) VALUES('receipt',0)")
    d.execSQL("UPDATE counters SET value=MAX(value,COALESCE((SELECT MAX(receipt_no) FROM ledger),0)) WHERE name='receipt'")
+   d.setTransactionSuccessful()
   }finally{d.endTransaction()}
  }
 }
