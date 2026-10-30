@@ -131,6 +131,7 @@ private fun rentForPeriod(tenantId:Long,period:String):Long{
    val ca=root.optJSONArray("counters")?:JSONArray();for(i in 0 until ca.length()){val o=ca.getJSONObject(i);d.insertOrThrow("counters",null,values{put("name",o.getString("name"));put("value",o.getLong("value"))})}
    val sa=root.optJSONArray("settings")?:JSONArray();for(i in 0 until sa.length()){val o=sa.getJSONObject(i);d.insertOrThrow("app_settings",null,values{put("key",o.getString("key"));put("value",o.getString("value"))})}
    d.execSQL("INSERT OR IGNORE INTO counters(name,value) VALUES('receipt',0)");d.setTransactionSuccessful()
+   d.execSQL("UPDATE counters SET value=MAX(value,COALESCE((SELECT MAX(receipt_no) FROM ledger),0)) WHERE name='receipt'")
   }finally{d.endTransaction()}
  }
 }
