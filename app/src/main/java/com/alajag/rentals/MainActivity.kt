@@ -184,7 +184,11 @@ class MainActivity:Activity(){
  }
  private fun paymentDialog(t:Tenant){
   val box=LinearLayout(this).apply{orientation=1;setPadding(14,4,14,4)};val amount=field("المبلغ المستلم").also{it.inputType=2};val receiver=field("اسم المستلم");val note=field("ملاحظات");listOf(amount,receiver,note).forEach{box.addView(it)}
-  AlertDialog.Builder(this).setTitle("تحصيل من "+t.name).setView(box).setNegativeButton("إلغاء",null).setPositiveButton("تسجيل"){_,_->try{val a=amount.text.toString().toLong();val no=db.payment(t,a,receiver.text.toString(),note.text.toString());share("إيصال رقم "+no,"العجاج - الإيجارات\\nالمستأجر: "+t.name+"\\nالمبلغ: "+a+" ريال\\nالتاريخ: "+stamp()+"\\nالمستلم: "+receiver.text+"\\nرقم الإيصال: "+no);refresh()}catch(e:Exception){toast(e.message?:"مبلغ غير صحيح")}}.show()
+  AlertDialog.Builder(this).setTitle("تحصيل من "+t.name).setView(box).setNegativeButton("إلغاء",null).setPositiveButton("تسجيل"){_,_->try{val a=amount.text.toString().toLong();val no=db.payment(t,a,receiver.text.toString(),note.text.toString());showReceipt(t,no,a,receiver.text.toString());refresh()}catch(e:Exception){toast(e.message?:"مبلغ غير صحيح")}}.show()
+ }
+ private fun showReceipt(t:Tenant,no:Long,amount:Long,receiver:String){
+  val body="العجاج - الإيجارات\\nإيصال تحصيل رقم: "+no+"\\nالمستأجر: "+t.name+"\\nالهاتف: "+t.phone+"\\nالمبلغ المستلم: "+amount+" ريال\\nالتاريخ: "+stamp()+"\\nالمستلم: "+receiver
+  AlertDialog.Builder(this).setTitle("تم تسجيل التحصيل").setMessage("رقم الإيصال: "+no+"\\nالمبلغ: "+amount+" ريال").setNegativeButton("إغلاق",null).setNeutralButton("مشاركة نصية"){_,_->share("إيصال تحصيل رقم "+no,body)}.setPositiveButton("حفظ PDF"){_,_->makePdf("إيصال تحصيل رقم "+no,body,"receipt-"+no+".pdf")}.show()
  }
  private fun adjustmentDialog(t:Tenant){
   val amount=field("المبلغ").also{it.inputType=2};val note=field("سبب التسوية");val kind=Spinner(this).apply{adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,listOf("إضافة مستحق","إضافة رصيد دائن"))};val box=LinearLayout(this).apply{orientation=1;addView(kind);addView(amount);addView(note)}
