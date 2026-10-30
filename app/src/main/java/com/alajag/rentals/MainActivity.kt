@@ -124,6 +124,13 @@ private fun rentForPeriod(tenantId:Long,period:String):Long{
  fun totals(from:String,to:String):LongArray{
   val a=LongArray(4);readableDatabase.rawQuery("SELECT kind,COALESCE(SUM(amount),0) FROM ledger WHERE substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? GROUP BY kind",arrayOf(from,to)).use{c->while(c.moveToNext()){val i=when(c.getString(0)){"RENT"->0;"PAYMENT"->1;"CHARGE"->2;else->3};a[i]=c.getLong(1)}};return a
  }
+ fun balanceBefore(id:Long,from:String):Long{
+  if(from.isBlank())return 0L
+  val day=SimpleDateFormat("yyyy-MM-dd",Locale.US).parse(from)?:throw IllegalArgumentException("تاريخ البداية غير صحيح")
+  val cal=Calendar.getInstance().apply{time=day;add(Calendar.DAY_OF_MONTH,-1)}
+  val until=SimpleDateFormat("yyyy-MM-dd",Locale.US).format(cal.time)
+  return LedgerMath.balance(rows(id,"",until).map{LedgerAmount(it.kind,it.amount)})
+ }
  fun balanceAt(id:Long,to:String):Long{val items=rows(id,"",to).map{LedgerAmount(it.kind,it.amount)};return LedgerMath.balance(items)}
  fun balances():Pair<Long,Long>{var due=0L;var credit=0L;tenants("",true).filter{it.active}.forEach{val b=balance(it.id);if(b>0)due+=b else credit-=b};return due to credit}
  fun backup():String{
@@ -204,11 +211,14 @@ class MainActivity:Activity(){
   AlertDialog.Builder(this).setTitle("كشف حساب "+t.name).setView(box).setNegativeButton("إلغاء",null).setNeutralButton("مشاركة نصية"){_,_->share("كشف حساب "+t.name,statementText(t,from.text.toString(),to.text.toString()))}.setPositiveButton("PDF"){_,_->makePdf("كشف حساب "+t.name,statementText(t,from.text.toString(),to.text.toString()),"statement-"+t.id+".pdf")}.show()
  }
  private fun statementText(t:Tenant,from:String,to:String):String{
-  val out=StringBuilder("العجاج - الإيجارات\\nكشف حساب: "+t.name+"\\nالهاتف: "+t.phone+"\\n\\n")
+  validateDateRange(from,to)
+  val opening=db.balanceBefore(t.id,from)
+  val out=StringBuilder("العجاج - الإيجارات\\nكشف حساب: "+t.name+"\\nالهاتف: "+t.phone+"\\nالرصيد الافتتاحي: "+opening+" ريال\\n\\n")
   db.rows(t.id,from,to).forEach{e->val label=when(e.kind){"RENT"->"إيجار "+e.period;"PAYMENT"->"تحصيل";"CHARGE"->"مبلغ مستحق";else->"رصيد دائن"};out.append(e.created+" | "+label+" | "+e.amount+" ريال");if(e.receipt!=null)out.append(" | إيصال "+e.receipt);if(!e.receiver.isNullOrBlank())out.append(" | المستلم "+e.receiver);if(!e.note.isNullOrBlank())out.append(" | "+e.note);out.append("\\n")}
   val closing=if(to.isBlank())db.balance(t.id) else db.balanceAt(t.id,to);out.append("\\nالرصيد حتى نهاية الفترة: "+closing+" ريال");return out.toString()
  }
  private fun reportText(from:String,to:String):String{
+  validateDateRange(from,to)
   val out=StringBuilder("العجاج - الإيجارات\\nتقرير الفترة: "+from+" إلى "+to+"\\nتاريخ التقرير: "+stamp()+"\\n\\n")
   var rent=0L;var paid=0L;var charge=0L;var credit=0L
   db.tenants("",true).forEach{t->
@@ -239,6 +249,15 @@ class MainActivity:Activity(){
  private fun restore(){AlertDialog.Builder(this).setTitle("استعادة نسخة").setMessage("سيتم استبدال البيانات الحالية. احفظ نسخة احتياطية منها أولاً.").setNegativeButton("إلغاء",null).setNeutralButton("آخر نسخة تلقائية"){_,_->restoreLatestAutomatic()}.setPositiveButton("اختيار ملف"){_,_->val i=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="application/json"};startActivityForResult(i,82)}.show()}
  private fun restoreLatestAutomatic(){try{val folder=java.io.File(filesDir,"backups");val latest=folder.listFiles()?.filter{it.name.startsWith("alajag-backup-")}?.maxByOrNull{it.name}?:throw IllegalStateException("لا توجد نسخة تلقائية محفوظة");AlertDialog.Builder(this).setTitle("استعادة النسخة التلقائية").setMessage("سيتم استعادة النسخة: "+latest.name+" واستبدال البيانات الحالية.").setNegativeButton("إلغاء",null).setPositiveButton("استعادة"){_,_->try{db.restore(latest.readText(Charsets.UTF_8));db.generateDuePeriods();refresh();toast("تمت استعادة النسخة التلقائية")}catch(e:Exception){toast("تعذرت الاستعادة: "+e.message)}}.show()}catch(e:Exception){toast(e.message?:"لا توجد نسخة تلقائية")}}
  override fun onActivityResult(req:Int,res:Int,data:Intent?){super.onActivityResult(req,res,data);if(res!=RESULT_OK||data?.data==null){pdf?.close();pdf=null;return};try{when(req){81->contentResolver.openOutputStream(data.data!!)?.use{it.write(db.backup().toByteArray(Charsets.UTF_8))}.also{toast("تم حفظ النسخة الكاملة")};82->{val raw=contentResolver.openInputStream(data.data!!)!!.bufferedReader().use{it.readText()};db.restore(raw);db.generateDuePeriods();refresh();toast("تمت استعادة النسخة")};83->{pdf?.let{p->contentResolver.openOutputStream(data.data!!)?.use{p.writeTo(it)};p.close();pdf=null;toast("تم حفظ PDF")}}}}catch(e:Exception){toast("تعذرت العملية: "+e.message)}}
+ private fun validateDateRange(from:String,to:String){
+  val format=SimpleDateFormat("yyyy-MM-dd",Locale.US).apply{isLenient=false}
+  format.timeZone=TimeZone.getTimeZone("UTC")
+  val start=if(from.isBlank())null else try{format.parse(from)}catch(_:Exception){null}
+  val end=if(to.isBlank())null else try{format.parse(to)}catch(_:Exception){null}
+  require(from.isBlank()||start!=null){"تاريخ البداية يجب أن يكون بصيغة YYYY-MM-DD"}
+  require(to.isBlank()||end!=null){"تاريخ النهاية يجب أن يكون بصيغة YYYY-MM-DD"}
+  require(start==null||end==null||!start.after(end)){"تاريخ البداية يجب ألا يتجاوز تاريخ النهاية"}
+ }
  private fun share(subject:String,body:String){startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply{type="text/plain";putExtra(Intent.EXTRA_SUBJECT,subject);putExtra(Intent.EXTRA_TEXT,body)},"مشاركة"))}
  private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_LONG).show()
 }
