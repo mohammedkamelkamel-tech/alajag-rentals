@@ -9,6 +9,7 @@ object BillingPeriods {
     fun nextPeriod(currentPeriod: String): String {
         require(Regex("\\d{4}-\\d{2}").matches(currentPeriod)) { "Invalid month format" }
         val parts = currentPeriod.split("-")
+        require(parts[1].toInt() in 1..12) { "Invalid month value" }
         val calendar = Calendar.getInstance().apply {
             clear()
             set(parts[0].toInt(), parts[1].toInt() - 1, 1)
