@@ -1,5 +1,7 @@
 name: Android build (manual)
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
   push:
     tags:
