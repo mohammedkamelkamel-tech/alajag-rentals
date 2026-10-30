@@ -120,6 +120,7 @@ private fun rentForPeriod(tenantId:Long,period:String):Long{
  fun totals(from:String,to:String):LongArray{
   val a=LongArray(4);readableDatabase.rawQuery("SELECT kind,COALESCE(SUM(amount),0) FROM ledger WHERE substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? GROUP BY kind",arrayOf(from,to)).use{c->while(c.moveToNext()){val i=when(c.getString(0)){"RENT"->0;"PAYMENT"->1;"CHARGE"->2;else->3};a[i]=c.getLong(1)}};return a
  }
+ fun balanceAt(id:Long,to:String):Long{val items=rows(id,"",to).map{LedgerAmount(it.kind,it.amount)};return LedgerMath.balance(items)}
  fun balances():Pair<Long,Long>{var due=0L;var credit=0L;tenants("",true).filter{it.active}.forEach{val b=balance(it.id);if(b>0)due+=b else credit-=b};return due to credit}
  fun backup():String{
   val root=JSONObject().put("format","alajag-rentals-v3").put("created_at",stamp())
@@ -196,7 +197,7 @@ class MainActivity:Activity(){
  private fun statementText(t:Tenant,from:String,to:String):String{
   val out=StringBuilder("العجاج - الإيجارات\\nكشف حساب: "+t.name+"\\nالهاتف: "+t.phone+"\\n\\n")
   db.rows(t.id,from,to).forEach{e->val label=when(e.kind){"RENT"->"إيجار "+e.period;"PAYMENT"->"تحصيل";"CHARGE"->"مبلغ مستحق";else->"رصيد دائن"};out.append(e.created+" | "+label+" | "+e.amount+" ريال");if(e.receipt!=null)out.append(" | إيصال "+e.receipt);if(!e.receiver.isNullOrBlank())out.append(" | المستلم "+e.receiver);if(!e.note.isNullOrBlank())out.append(" | "+e.note);out.append("\\n")}
-  out.append("\\nالرصيد الحالي: "+db.balance(t.id)+" ريال");return out.toString()
+  val closing=if(to.isBlank())db.balance(t.id) else db.balanceAt(t.id,to);out.append("\\nالرصيد حتى نهاية الفترة: "+closing+" ريال");return out.toString()
  }
  private fun reportDialog(){
   val from=field("من تاريخ YYYY-MM-DD");val to=field("إلى تاريخ YYYY-MM-DD");val box=LinearLayout(this).apply{orientation=1;addView(from);addView(to)}
