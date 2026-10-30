@@ -56,7 +56,7 @@ class RentalDb(ctx:Context):SQLiteOpenHelper(ctx,"alajag_rentals.db",null,3){
   }finally{d.endTransaction()}
  }
  fun adjustment(t:Tenant,kind:String,amount:Long,note:String){require(kind=="CHARGE"||kind=="CREDIT");require(amount>0);writableDatabase.insertOrThrow("ledger",null,values{put("tenant_id",t.id);put("kind",kind);put("amount",amount);put("note",note);put("created_at",stamp())})}
- fun balance(id:Long)=android.database.DatabaseUtils.longForQuery(readableDatabase,"SELECT COALESCE(SUM(CASE WHEN kind IN ('RENT','CHARGE') THEN amount ELSE -amount END),0) FROM ledger WHERE tenant_id=?",arrayOf(id.toString()))
+ fun balance(id:Long):Long=LedgerMath.balance(rows(id).map{LedgerAmount(it.kind,it.amount)})
  fun generateDuePeriods(today:Calendar=Calendar.getInstance()){
   val min=Calendar.getInstance().apply{set(2026,Calendar.NOVEMBER,1,0,0,0);set(Calendar.MILLISECOND,0)}
   val end=Calendar.getInstance().apply{timeInMillis=today.timeInMillis;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)}
