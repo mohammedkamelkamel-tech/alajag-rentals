@@ -1,11 +1,10 @@
-name: Android build (manual)
+name: Android build
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
-  push:
     tags:
       - 'v*'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
