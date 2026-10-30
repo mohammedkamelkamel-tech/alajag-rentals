@@ -47,15 +47,52 @@ class Db(ctx: Context) : SQLiteOpenHelper(ctx, "alajag_rentals.db", null, 1) {
         } finally { db.endTransaction() }
     }
     fun balance(id:Long):Long = android.database.DatabaseUtils.longForQuery(readableDatabase,"SELECT COALESCE(SUM(CASE WHEN kind IN ('RENT','WITHDRAWAL') THEN amount ELSE -amount END),0) FROM ledger WHERE tenant_id=?", arrayOf(id.toString()))
-    fun due(period:String) {
-        val db=writableDatabase
-        for(t in tenants().filter{it.active}) {
-            val exists=android.database.DatabaseUtils.longForQuery(db,"SELECT COUNT(*) FROM ledger WHERE tenant_id=? AND kind='RENT' AND period=?", arrayOf(t.id.toString(),period))
-            if(exists==0L) {
-                val v=android.content.ContentValues().apply { put("tenant_id",t.id);put("kind","RENT");put("period",period);put("amount",t.rent);put("note","إيجار شهر $period");put("created_at",now()) }
-                db.insertOrThrow("ledger",null,v)
-            }
+    // إنشاء الاستحقاقات المستحقة حتى تاريخ اليوم، حتى لو لم يفتح المستخدم التطبيق
+    // في آخر يوم من الشهر. الفهرس الفريد يمنع تكرار استحقاق الشهر.
+    fun generateDuePeriods(today: Calendar = Calendar.getInstance()) {
+        val start = Calendar.getInstance().apply {
+            set(2026, Calendar.NOVEMBER, 1, 0, 0, 0)
+            set(Calendar.MILLISECOND, 0)
         }
+        val current = Calendar.getInstance().apply {
+            timeInMillis = today.timeInMillis
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }
+        val month = start.clone() as Calendar
+        while (month.before(current) || (month.get(Calendar.YEAR) == current.get(Calendar.YEAR) &&
+                    month.get(Calendar.MONTH) == current.get(Calendar.MONTH) &&
+                    current.get(Calendar.DAY_OF_MONTH) == current.getActualMaximum(Calendar.DAY_OF_MONTH))) {
+            val lastDay = month.getActualMaximum(Calendar.DAY_OF_MONTH)
+            val dueDate = month.clone() as Calendar
+            dueDate.set(Calendar.DAY_OF_MONTH, lastDay)
+            if (!dueDate.after(current)) {
+                val period = String.format(Locale.US, "%04d-%02d",
+                    month.get(Calendar.YEAR), month.get(Calendar.MONTH) + 1)
+                due(period)
+            }
+            month.add(Calendar.MONTH, 1)
+        }
+    }
+
+    private fun due(period:String) {
+        val db=writableDatabase
+        db.beginTransaction()
+        try {
+            for(t in tenants().filter{it.active}) {
+                val exists=android.database.DatabaseUtils.longForQuery(db,
+                    "SELECT COUNT(*) FROM ledger WHERE tenant_id=? AND kind='RENT' AND period=?",
+                    arrayOf(t.id.toString(),period))
+                if(exists==0L) {
+                    val v=android.content.ContentValues().apply {
+                        put("tenant_id",t.id); put("kind","RENT"); put("period",period)
+                        put("amount",t.rent); put("note","إيجار شهر $period"); put("created_at",now())
+                    }
+                    db.insertOrThrow("ledger",null,v)
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
     }
     fun statement(id:Long):String {
         val b=StringBuilder()
@@ -74,13 +111,8 @@ class MainActivity : Activity() {
     private lateinit var summary:TextView
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState); db=Db(this)
-        val prefs=getSharedPreferences("schedule",0)
-        val cal=Calendar.getInstance()
-        val month=String.format(Locale.US,"%04d-%02d",cal.get(Calendar.YEAR),cal.get(Calendar.MONTH)+1)
-        val first=cal.get(Calendar.YEAR)*100+cal.get(Calendar.MONTH)+1
-        val start=202611
-        val last=prefs.getInt("last_due",0)
-        if(first>=start && first>last) { if(cal.get(Calendar.DAY_OF_MONTH)==cal.getActualMaximum(Calendar.DAY_OF_MONTH)) { db.due(month); prefs.edit().putInt("last_due",first).apply() } }
+        // يعالج كل الأشهر التي انتهى موعدها منذ نوفمبر 2026، دون تكرار.
+        db.generateDuePeriods()
         render()
     }
     private fun render() {
